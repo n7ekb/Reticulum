@@ -42,6 +42,7 @@ from RNS._version import __version__
 APP_NAME = "rncp"
 allow_all = False
 allow_fetch = False
+allow_overwrite = False
 fetch_auto_compress = True
 fetch_jail = None
 save_path = None
@@ -89,7 +90,7 @@ def listen(configdir, verbosity = 0, quietness = 0, allowed = [], display_identi
 
     identity_path = RNS.Reticulum.identitypath+"/"+APP_NAME
     if os.path.isfile(identity_path):
-        identity = RNS.Identity.from_file(identity_path)                
+        identity = RNS.Identity.from_file(identity_path)
 
     if identity == None:
         RNS.log("No valid saved identity found, creating new...", RNS.LOG_INFO)
@@ -133,7 +134,7 @@ def listen(configdir, verbosity = 0, quietness = 0, allowed = [], display_identi
                     ms = "y"
                 else:
                     ms = "ies"
-                
+
                 RNS.log("Loaded "+str(len(ali))+" allowed identit"+ms+" from "+str(allowed_file), RNS.LOG_VERBOSE)
 
         except Exception as e:
@@ -222,7 +223,7 @@ def listen(configdir, verbosity = 0, quietness = 0, allowed = [], display_identi
                     destination.announce()
 
         threading.Thread(target=job, daemon=True).start()
-    
+
     while True:
         time.sleep(1)
 
@@ -248,7 +249,7 @@ def receive_sender_identified(link, identity):
 
 def receive_resource_callback(resource):
     global allow_all
-    
+
     sender_identity = resource.link.get_remote_identity()
 
     if sender_identity != None:
@@ -270,6 +271,7 @@ def receive_resource_started(resource):
 
 def receive_resource_concluded(resource):
     global save_path
+    global allow_overwrite
     if resource.status == RNS.Resource.COMPLETE:
         print(str(resource)+" completed")
 
@@ -287,10 +289,11 @@ def receive_resource_concluded(resource):
                 saved_filename = filename
 
             full_save_path = saved_filename
-            while os.path.isfile(full_save_path):
-                counter += 1
-                full_save_path = saved_filename+"."+str(counter)
-            
+            if (not allow_overwrite):
+                while os.path.isfile(full_save_path):
+                    counter += 1
+                    full_save_path = saved_filename+"."+str(counter)
+
             file = open(full_save_path, "wb")
             file.write(resource.data.read())
             file.close()
@@ -311,11 +314,11 @@ def sender_progress(resource):
     stats_max = 32
     global current_resource, stats, speed, phy_speed, phy_got_total, resource_done
     current_resource = resource
-    
+
     now = time.time()
     got = current_resource.get_progress()*current_resource.get_data_size()
     phy_got = current_resource.get_segment_progress()*current_resource.get_transfer_size()
-    
+
     entry = [now, got, phy_got]
     stats.append(entry)
 
@@ -326,7 +329,7 @@ def sender_progress(resource):
     if span == 0:
         speed = 0
         phy_speed = 0
-    
+
     else:
         diff = got - stats[0][1]
         speed = diff/span
@@ -482,6 +485,7 @@ def fetch(configdir, verbosity = 0, quietness = 0, destination = None, file = No
     def fetch_resource_concluded(resource):
         nonlocal resource_resolved, resource_status
         global save_path
+        global allow_overwrite
         if resource.status == RNS.Resource.COMPLETE:
             if resource.total_size > 4:
                 filename_len = int.from_bytes(resource.data.read(2), "big")
@@ -495,10 +499,11 @@ def fetch(configdir, verbosity = 0, quietness = 0, destination = None, file = No
                     saved_filename = filename
 
                 full_save_path = saved_filename
-                while os.path.isfile(full_save_path):
-                    counter += 1
-                    full_save_path = saved_filename+"."+str(counter)
- 
+                if (not allow_overwrite):
+                    while os.path.isfile(full_save_path):
+                        counter += 1
+                        full_save_path = saved_filename+"."+str(counter)
+
                 file = open(full_save_path, "wb")
                 file.write(resource.data.read())
                 file.close()
@@ -620,7 +625,7 @@ def send(configdir, verbosity = 0, quietness = 0, destination = None, file = Non
         print(str(e))
         RNS.exit(1)
 
-    
+
     file_path = os.path.expanduser(file)
     if not os.path.isfile(file_path):
         print("File not found")
@@ -740,7 +745,7 @@ def send(configdir, verbosity = 0, quietness = 0, destination = None, file = Non
             i = (i+1)%len(syms)
 
     resource_started_at = time.time()
-    
+
     if resource.status > RNS.Resource.COMPLETE:
         if silent:
             print("File was not accepted by "+RNS.prettyhexrep(destination_hash))
@@ -805,6 +810,7 @@ def send(configdir, verbosity = 0, quietness = 0, destination = None, file = Non
         RNS.exit(0)
 
 def main():
+    global allow_overwrite
     try:
         parser = argparse.ArgumentParser(description="Reticulum File Transfer Utility")
         parser.add_argument("file", nargs="?", default=None, help="file to be transferred", type=str)
@@ -827,8 +833,10 @@ def main():
         parser.add_argument('-P', '--phy-rates', action='store_true', default=False, help="display physical layer transfer rates")
         # parser.add_argument("--limit", action="store", metavar="files", type=float, help="maximum number of files to accept", default=None)
         parser.add_argument("--version", action="version", version="rncp {version}".format(version=__version__))
-        
+        parser.add_argument('--allow-overwrite', action='store_true', default=False, help="allow overwriting existing files")
+
         args = parser.parse_args()
+        allow_overwrite = args.allow_overwrite
 
         if args.listen or args.print_identity:
             listen(
@@ -843,7 +851,7 @@ def main():
                 display_identity=args.print_identity,
                 # limit=args.limit,
                 disable_auth=args.no_auth,
-                announce=args.b,
+                announce=args.b
             )
 
         elif args.fetch:
